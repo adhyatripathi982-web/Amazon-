@@ -6,43 +6,81 @@ import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.impute import SimpleImputer
 
-# ---------------------------
-# Title
-# ---------------------------
-st.set_page_config(page_title="Amazon Dashboard", layout="wide")
-st.title("Amazon Fulfillment & Viewer Retention Dashboard")
-
-# ---------------------------
-# Dataset Upload or Generate
-# ---------------------------
-st.sidebar.header("Dataset Options")
-dataset_option = st.sidebar.selectbox(
-    "Choose Dataset Option",
-    ["Upload CSV/Excel", "Generate Sample Dataset"]
+# ------------------------------------------------
+# PAGE CONFIG
+# ------------------------------------------------
+st.set_page_config(
+    page_title="Amazon Analytics Dashboard",
+    layout="wide",
+    page_icon="📦"
 )
 
-df = None  # 🔥 IMPORTANT: Initialize df
+# ------------------------------------------------
+# CUSTOM AMAZON STYLING
+# ------------------------------------------------
+st.markdown("""
+<style>
+.main {
+    background-color: #F6F6F6;
+}
+.stMetric {
+    background-color: white;
+    padding: 15px;
+    border-radius: 10px;
+    border-left: 5px solid #FF9900;
+}
+h1, h2, h3 {
+    color: #232F3E;
+}
+.sidebar .sidebar-content {
+    background-color: #232F3E;
+}
+</style>
+""", unsafe_allow_html=True)
 
+# ------------------------------------------------
+# HEADER WITH LOGO
+# ------------------------------------------------
+col1, col2 = st.columns([1, 6])
+
+with col1:
+    st.image("https://upload.wikimedia.org/wikipedia/commons/a/a9/Amazon_logo.svg", width=120)
+
+with col2:
+    st.title("Amazon Fulfillment & Retention Intelligence Dashboard")
+    st.caption("Data-driven insights for operational excellence")
+
+# ------------------------------------------------
+# SIDEBAR
+# ------------------------------------------------
+st.sidebar.header("📊 Dataset Options")
+
+dataset_option = st.sidebar.radio(
+    "Choose Dataset Source",
+    ["Generate Sample Dataset", "Upload CSV/Excel"]
+)
+
+df = None
+
+# ------------------------------------------------
+# DATA LOADING
+# ------------------------------------------------
 if dataset_option == "Upload CSV/Excel":
-    uploaded_file = st.file_uploader("Upload your dataset", type=["csv", "xlsx"])
-
-    if uploaded_file is not None:
+    uploaded_file = st.sidebar.file_uploader("Upload Dataset", type=["csv", "xlsx"])
+    if uploaded_file:
         try:
             if uploaded_file.name.endswith(".csv"):
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
-
-            st.success("Dataset loaded successfully!")
-
+            st.sidebar.success("Dataset Loaded Successfully")
         except Exception as e:
-            st.error("Error loading file")
-            st.exception(e)
+            st.sidebar.error("Error loading dataset")
+            st.sidebar.exception(e)
 
 else:
-    st.info("Generating sample dataset...")
     np.random.seed(42)
-    n = 100
+    n = 200
 
     df = pd.DataFrame({
         "Order_ID": range(1, n+1),
@@ -51,111 +89,136 @@ else:
         "Delivery_Date": pd.date_range(start='2023-01-03', periods=n, freq='D') +
                          pd.to_timedelta(np.random.randint(1, 7, n), unit='D'),
         "Order_Accuracy": np.random.choice([1, 0], n, p=[0.95, 0.05]),
-        "Defect_Rate": np.random.rand(n),
         "Stock_Level": np.random.randint(50, 500, n),
         "Inventory_Age_Days": np.random.randint(1, 100, n),
         "Shipping_Cost": np.random.randint(5, 50, n),
-        "FBA_Fees": np.random.randint(2, 20, n),
-        "3PL_Cost": np.random.randint(3, 25, n),
-        "On_Time_Delivery": np.random.choice([1, 0], n, p=[0.9, 0.1]),
-        "Return_Flag": np.random.choice([1, 0], n, p=[0.1, 0.9]),
         "Return_Reason": np.random.choice(
             ["Damaged", "Late Delivery", "Not Needed", "Wrong Item"], n
         ),
         "Purchase_Frequency": np.random.randint(1, 10, n),
         "Monetary_Value": np.random.randint(20, 500, n),
-        "Subscription_Flag": np.random.choice([1, 0], n, p=[0.3, 0.7])
     })
 
-    st.success("Sample dataset generated!")
-
-# ---------------------------
-# STOP if no dataset
-# ---------------------------
+# Stop if no dataset
 if df is None:
-    st.warning("Please upload a dataset or generate a sample dataset.")
+    st.warning("Please upload or generate dataset.")
     st.stop()
 
-# ---------------------------
-# Preview Dataset
-# ---------------------------
-st.subheader("Dataset Preview")
-st.dataframe(df.head())
-
-# ---------------------------
-# Data Cleaning
-# ---------------------------
-st.subheader("Data Cleaning")
-
+# ------------------------------------------------
+# DATA CLEANING
+# ------------------------------------------------
 numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
 if numeric_cols:
     imputer = SimpleImputer(strategy='mean')
     df[numeric_cols] = imputer.fit_transform(df[numeric_cols])
-    st.write("Missing values handled for numeric columns.")
 
-# ---------------------------
-# Feature Engineering
-# ---------------------------
-st.subheader("Feature Engineering")
+df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors="coerce")
+df["Delivery_Date"] = pd.to_datetime(df["Delivery_Date"], errors="coerce")
+df["Lead_Time_Days"] = (df["Delivery_Date"] - df["Order_Date"]).dt.days
+df["RFM_Score"] = df["Purchase_Frequency"] * df["Monetary_Value"]
+df["Normalized_Shipping_Cost"] = MinMaxScaler().fit_transform(df[["Shipping_Cost"]])
 
-if "Order_Date" in df.columns and "Delivery_Date" in df.columns:
-    df["Order_Date"] = pd.to_datetime(df["Order_Date"], errors='coerce')
-    df["Delivery_Date"] = pd.to_datetime(df["Delivery_Date"], errors='coerce')
-    df["Lead_Time_Days"] = (df["Delivery_Date"] - df["Order_Date"]).dt.days
+# ------------------------------------------------
+# SIDEBAR FILTERS
+# ------------------------------------------------
+st.sidebar.header("🔎 Filters")
 
-if "Purchase_Frequency" in df.columns and "Monetary_Value" in df.columns:
-    df["RFM_Score"] = df["Purchase_Frequency"] * df["Monetary_Value"]
+date_range = st.sidebar.date_input(
+    "Filter by Order Date",
+    [df["Order_Date"].min(), df["Order_Date"].max()]
+)
 
-if "Shipping_Cost" in df.columns:
-    df["Normalized_Shipping_Cost"] = MinMaxScaler().fit_transform(
-        df[["Shipping_Cost"]]
+return_filter = st.sidebar.multiselect(
+    "Filter by Return Reason",
+    options=df["Return_Reason"].unique(),
+    default=df["Return_Reason"].unique()
+)
+
+df = df[
+    (df["Order_Date"] >= pd.to_datetime(date_range[0])) &
+    (df["Order_Date"] <= pd.to_datetime(date_range[1])) &
+    (df["Return_Reason"].isin(return_filter))
+]
+
+# ------------------------------------------------
+# KPI SECTION
+# ------------------------------------------------
+st.subheader("📌 Key Performance Indicators")
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.metric("Total Orders", len(df))
+
+with col2:
+    st.metric("Avg Lead Time", f"{df['Lead_Time_Days'].mean():.1f} Days")
+
+with col3:
+    st.metric("Order Accuracy", f"{df['Order_Accuracy'].mean()*100:.1f}%")
+
+with col4:
+    st.metric("Avg Revenue per Order", f"${df['Monetary_Value'].mean():.2f}")
+
+# ------------------------------------------------
+# VISUALIZATIONS
+# ------------------------------------------------
+st.subheader("📊 Operational Analytics")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    fig, ax = plt.subplots()
+    sns.histplot(df["Lead_Time_Days"], kde=True, color="#FF9900", ax=ax)
+    ax.set_title("Lead Time Distribution")
+    st.pyplot(fig)
+
+with col2:
+    fig, ax = plt.subplots()
+    sns.scatterplot(
+        x="Inventory_Age_Days",
+        y="Stock_Level",
+        data=df,
+        color="#232F3E",
+        ax=ax
     )
-
-st.success("Feature engineering completed.")
-
-# ---------------------------
-# Visualizations
-# ---------------------------
-st.subheader("Visualizations")
-
-if "Lead_Time_Days" in df.columns:
-    st.write("### Lead Time Distribution")
-    fig, ax = plt.subplots()
-    sns.histplot(df["Lead_Time_Days"].dropna(), kde=True, ax=ax)
+    ax.set_title("Inventory Age vs Stock")
     st.pyplot(fig)
 
-if "Order_Accuracy" in df.columns:
-    st.write("### Order Accuracy Rate")
-    accuracy_rate = df["Order_Accuracy"].mean()
-    st.metric("Order Accuracy", f"{accuracy_rate*100:.2f}%")
+st.subheader("📦 Returns & Customer Behavior")
 
-if {"Inventory_Age_Days", "Stock_Level"}.issubset(df.columns):
-    st.write("### Inventory Age vs Stock Level")
+col1, col2 = st.columns(2)
+
+with col1:
     fig, ax = plt.subplots()
-    sns.scatterplot(x="Inventory_Age_Days", y="Stock_Level", data=df, ax=ax)
+    df["Return_Reason"].value_counts().plot(
+        kind="bar",
+        color="#FF9900",
+        ax=ax
+    )
+    ax.set_title("Return Reason Distribution")
     st.pyplot(fig)
 
-if {"Shipping_Cost", "FBA_Fees", "3PL_Cost"}.issubset(df.columns):
-    st.write("### Shipping Costs")
+with col2:
     fig, ax = plt.subplots()
-    df[["Shipping_Cost", "FBA_Fees", "3PL_Cost"]].hist(ax=ax)
+    sns.histplot(df["RFM_Score"], color="#232F3E", ax=ax)
+    ax.set_title("Customer RFM Score Distribution")
     st.pyplot(fig)
 
-if "Return_Reason" in df.columns:
-    st.write("### Return Reasons Distribution")
-    fig, ax = plt.subplots()
-    df["Return_Reason"].value_counts().plot(kind="bar", ax=ax)
-    st.pyplot(fig)
+# ------------------------------------------------
+# DATA PREVIEW
+# ------------------------------------------------
+st.subheader("📄 Dataset Preview")
+st.dataframe(df, use_container_width=True)
 
-# ---------------------------
-# Business Insights
-# ---------------------------
-st.subheader("Business Insights")
-st.write("""
-• Monitor delivery lead time to improve logistics efficiency.  
-• High order accuracy improves customer satisfaction.  
-• Control inventory aging to reduce holding costs.  
-• Optimize shipping cost mix (FBA vs 3PL).  
-• Reduce returns by analyzing top return reasons.  
-• Use RFM and CLV metrics to identify high-value customers.  
+# ------------------------------------------------
+# BUSINESS INSIGHTS
+# ------------------------------------------------
+st.subheader("💡 Strategic Insights")
+
+st.info("""
+• Reduce lead time variability to improve Prime-level experience  
+• Optimize aging inventory to reduce holding cost  
+• Address dominant return reasons to reduce reverse logistics  
+• Identify high RFM customers for targeted retention campaigns  
+• Improve operational efficiency through predictive analytics  
 """)
